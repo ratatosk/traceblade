@@ -1,0 +1,25 @@
+Name:                traceblade
+Version:             0.1
+Synopsis:            strace output parser
+License:             BSD3
+License-file:        LICENSE
+Author:              Paul Graphov
+Maintainer:          graphov@gmail.com
+Category:            Development
+Build-type:          Simple
+Cabal-version:       >=1.2
+
+Executable traceblade
+  Main-is: TraceBlade.hs
+  Build-depends:
+    base >= 4,
+    bytestring,
+    parsec,
+    mtl,
+    containers,
+    stringsearch,
+    data-accessor,
+    data-accessor-mtl,
+    data-accessor-template
+  
+  
