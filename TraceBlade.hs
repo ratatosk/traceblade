@@ -26,6 +26,8 @@ import Data.Accessor.Template
 import qualified Data.ByteString.Lazy.Char8 as BS
 import qualified Data.ByteString.Lazy.Search as BSS
 
+import SCParser
+
 data Flag = Help | Tid Int | SCName String | Desc Int
 
 options :: [OptDescr Flag]
@@ -50,25 +52,7 @@ showHelp errs = do
 contains :: String -> BS.ByteString -> Bool
 contains pat = not . null . BSS.indices (BSS.strictify $ BS.pack pat)
 
-pInt :: Parser Int
-pInt = foldl' (\z x -> 10 * z + ord x - ord '0') 0 <$> many1 digit
-
-pSCName :: Parser String
-pSCName = many1 (letter <|> digit <|> char '_')
-
-pAction :: Parser Action
-pAction = pEnd <|> pBegin
-
-pEnd :: Parser Action
-pEnd = string "<..."
-
-
-pLine :: Parser Line
-pLine = do
-  tid <- pInt
-  spaces
-  act <- pAction
-  return (tid, act)
+ineType
 
 isResumed :: BS.ByteString -> Bool
 isResumed = contains "resumed>"

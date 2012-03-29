@@ -21,5 +21,6 @@ Executable traceblade
     data-accessor,
     data-accessor-mtl,
     data-accessor-template
+  Other-modules: SCParser.hs
   
   

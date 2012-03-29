@@ -1,47 +1,39 @@
 {-# LANGUAGE TemplateHaskell, TupleSections #-}
 
 module SCParser where
+import Control.Monad
+import Control.Applicative ((<*), (<$>))
+
+import Data.List
+import Data.Char
+
+import qualified Data.ByteString.Lazy.Char8 as BS
 
 import Text.Parsec.Prim
 import Text.Parsec.Char
+import Text.Parsec.Combinator
 import Text.Parsec.ByteString.Lazy
 
 import Data.Accessor.Template
 
-type Argument = NumLiteral Int | StrLiteral String | Labelled String ArgData | Object [ArgData]
+data Argument = NumLiteral Int 
+              | StrLiteral String
+              | Mask [String]
+              | Labelled String Argument 
+              | Object [Argument]
+                deriving (Show)
 
 data Syscall = Syscall { scName_ :: String
-                       , scArgs_ :: [ScArt
+                       , scArgs_ :: [Argument]
                        } deriving (Show)
 
-data LineType = Start | End | Complete
-
-data Line = Line { lTid_     :: Int
-                 , lType_    :: LineType
-                 , lSyscall_ :: Syscall
-                 } deriving (Show)
-                            
 $(deriveAccessors ''Syscall)
-$(deriveAccessors ''Line)
 
-str2int :: String -> Maybe Int
-str2int = foldl' (\z x -> 10 * z + ord x - ord '0') 0 <$> many1 digit
-
-line :: Parser Line
-line = do
-  tid <- maybe (fail "Cannot parse number") id . str2int <$> many1 digit
-  spaces
-  (lt, sc) <- syscall
-  return $ Line tid sType sc
-  
-syscall :: Parser (LineType, Syscall) 
-syscall = 
-  (try start >>= return . (Start,)) <|>
-  (try end >>= return . (End,)) <|>
-  (complete >>= return . (Complete,))
+number :: Parser Int
+number = (liftM (foldl' (\z x -> 10 * z + ord x - ord '0') 0) $ many1 digit) <?> "number"
 
 identifier :: Parser String
-identifier = many1 $ alphaNum <|> char '_'
+identifier = (letter <|> char '_') >>= \c -> (c:) <$> many (alphaNum <|> char '_')
 
 unesc :: Char -> Char
 unesc 'n' = '\n'
@@ -50,7 +42,7 @@ unesc 'r' = '\r'
 unesc 'v' = '\v'
 unesc c = c
 
-escapedChar :: IOParser Char
+escapedChar :: Parser Char
 escapedChar = (liftM unesc $ char '\\' >> anyChar) <?> "escaped char"
 
 quoted :: Parser String
@@ -61,19 +53,43 @@ quoted = flip label "quoted literal" $ do
   return res
   
 nonQuoted :: Parser String
-nonQuoted = (many1 $ (escapedChar <|> noneOf [',', ' ', '\t', '\n', '#'])) <?> "nonquoted literal"
+nonQuoted = (many1 $ (escapedChar <|> noneOf ", \t\n{}()")) <?> "nonquoted literal"
 
-strLiteral :: IOParser String
-strLiteral = quoted <|> nonQuoted <?> "literal"
+strLit :: Parser String
+strLit = quoted <|> nonQuoted <?> "literal"
+
+labelled :: Parser (String, Argument)
+labelled = do
+  l <- identifier
+  spaces >> char '=' >> spaces
+  v <- argument
+  return (l, v)
+  
+mask :: Parser [String]  
+mask = (identifier <* spaces) `sepBy1` (char '|' >> spaces)
+
+object :: Parser [Argument]
+object = do
+  char '{'
+  cont <- (argument <* spaces) `sepBy` (char ',' >> spaces)
+  char '}'
+  return cont
 
 argument :: Parser Argument
-
-getStart :: Parser Syscall
-getStart = do
+argument = 
+  (try number >>= return . NumLiteral) <|>
+  (try labelled >>= return . uncurry Labelled) <|>
+  (try mask >>= return . Mask) <|>
+  (try strLit >>= return . StrLiteral) <|>
+  (object >>= return . Object)
+  
+syscall :: Parser Syscall
+syscall = do
   scName <- identifier
   char '(' >> spaces
   args <- argument `sepBy` (char ',' >> spaces)
-  
-  
-  
-
+  char ')' >> spaces >> char '=' >> spaces
+  retc <- number
+  spaces
+  eof
+  return $ Syscall scName args
