@@ -1,13 +1,18 @@
 {-# LANGUAGE TemplateHaskell, TupleSections #-}
 
-module SCParser where
+module SCParser ( Syscall(..)
+                , scName
+                , scArgs
+                , Argument(..)
+                , parseSyscall
+                ) where
 import Control.Monad
 import Control.Applicative ((<*), (<$>))
 
 import Data.List
 import Data.Char
 
-import qualified Data.ByteString.Lazy.Char8 as BS
+import qualified Data.ByteString.Lazy.Char8 as BL
 
 import Text.Parsec.Prim
 import Text.Parsec.Char
@@ -93,3 +98,8 @@ syscall = do
   spaces
   eof
   return $ Syscall scName args
+  
+parseSyscall :: BL.ByteString -> Either String Syscall
+parseSyscall s = case parse syscall "" s of
+  Left e -> Left $ show e
+  Right s -> Right s

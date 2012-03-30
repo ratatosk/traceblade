@@ -39,12 +39,6 @@ options =
   , Option ['s'] ["syscall"] (ReqArg SCName "SYSCALL") "filter by syscall name"
   , Option ['d'] ["descr"]   (ReqArg (Desc . read) "FD") "filter by file descriptor"
   ]
-  
-data Syscall = Syscall String (Maybe Int)
-
-data Action = Begin Syscall | End
-
-type Line = (Int, Action)
 
 showHelp :: [String] -> IO a
 showHelp errs = do 
@@ -96,18 +90,37 @@ classify s = let (u1, u2) = BLS.breakOn unfinished s
 
 parseLine :: BL.ByteString -> Either BL.ByteString (Int, LineType, BL.ByteString)
 parseLine s = case spc = BL.elemIndex ' ' s of
-  Nothing -> Left $ BL.pack "?1? " `mappend` s
+  Nothing -> Left $ BL.pack "### No spaces found " `mappend` s
   Just 0  -> Left s
   Just x  -> let (tids, sys) = BL.splitAt x s 
                  sys' = BL.tail sys
                  tid = convertNum tids
              in case tid of
-               Nothing   -> Left $ BL.pack "?2? " `mappend` s
+               Nothing   -> Left $ BL.pack "### Cannot parse tid:\n" `mappend` s
                Just tid' -> Right (tid' t sc) where (t, sc) = classify sys'
               
 checkLine :: BL.ByteString -> Proc ()
 checkLine s | BL.null s = return ()
-            | otherwise = if BL.index s 0 == ' '
+            | otherwise = case parseLine s of
+  Left l -> do
+    skip <- A.get psSkip
+    when (not skip) $ tell [l]
+  Right (tid, lt, str) -> case lt of
+    Beginning -> psUnfinished %: M.insert tid str
+    Ending -> do
+      beg <- M.lookup tid <$> A.get psUnfinished
+      case beg of
+        Nothing -> tell [BL.pack "### Finish without start:", s]
+        Just beg' -> checkSyscall s tid $ BL.append beg' str
+    Complete -> checkSyscall s tid str
+    
+checkSyscall :: BL.ByteString -> BL.ByteString -> Proc ()    
+checkSyscall str sys = do 
+  case parseSyscall sys of
+    Left e -> tell [BL.pack $ "### Cannot parse syscall: " ++ e, str]
+    Right s -> do
+      
+
               then runDumpLine s
               else runSCLine (parse s)
   where
