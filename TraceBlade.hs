@@ -2,12 +2,13 @@
 
 module Main where
 
+import Data.Monoid
 import Data.Word
 
 import qualified Data.Accessor.Monad.MTL.State as A
 import Data.Accessor.Monad.MTL.State ((%=), (%:))
 
-import qualified Data.Set as S
+import qualified Data.Map as M
 
 import Control.Applicative
 import Control.Monad
@@ -23,8 +24,9 @@ import Text.Parsec.ByteString.Lazy
 
 import Data.Accessor.Template
 
-import qualified Data.ByteString.Lazy.Char8 as BS
-import qualified Data.ByteString.Lazy.Search as BSS
+import qualified Data.ByteString.Lazy.Char8 as BL
+import qualified Data.ByteString.Lazy.Search as BLS
+import qualified Data.ByteString.Char8 as BS
 
 import SCParser
 
@@ -49,52 +51,24 @@ showHelp errs = do
   putStrLn $ concat errs ++ usageInfo "Usage: traceblade [OPTION...]" options
   exitWith $ if null errs then ExitSuccess else ExitFailure 1
 
-contains :: String -> BS.ByteString -> Bool
-contains pat = not . null . BSS.indices (BSS.strictify $ BS.pack pat)
-
-ineType
-
-isResumed :: BS.ByteString -> Bool
-isResumed = contains "resumed>"
-
-extractFD :: BS.ByteString -> Maybe Int
-extractFD s = Nothing
-
-extractSC :: BS.ByteString -> String
-extractSC = BS.unpack . BS.takeWhile (/= '(')
-
-parseSC :: BS.ByteString -> Action
-parseSC s | isResumed s = End
-          | otherwise = Begin $ Syscall (extractSC s) (extractFD s)
-
 debug :: Show a => a -> a
 debug x = unsafePerformIO $ print x >> return x
-
-cutBy :: Char -> BS.ByteString -> (BS.ByteString, BS.ByteString)
-cutBy c s = case c `BS.elemIndex` s of 
-  Just idx -> 
-
-parse :: BS.ByteString -> Line
-parse l = (tid, parseSC rem)
-  where 
-    (tids, rem) = BS.span (/= ' ') l
-    tid = read $ BS.unpack tids
 
 match' :: Int -> String -> Maybe Int -> Flag -> Bool
 match' b _ _ (Tid a) = a == b
 match' _ b _ (SCName a) = a == b
 match' _ _ (Just b) (Desc a) = a == b
 
-data ProcState = ProcState { psInput_    :: [BS.ByteString]
+data ProcState = ProcState { psInput_    :: [BL.ByteString]
                            , psSkip_     :: Bool
-                           , psContTids_ :: S.Set Int
+                           , psUnfinished_ :: M.Map Int BL.ByteString
                            }
                  
 $(deriveAccessors ''ProcState)
 
-type Proc a = RWS [Flag] [BS.ByteString] ProcState a
+type Proc a = RWS [Flag] [BL.ByteString] ProcState a
                              
-runProc :: Proc () -> [Flag] -> [BS.ByteString] -> [BS.ByteString]
+runProc :: Proc () -> [Flag] -> [BL.ByteString] -> [BL.ByteString]
 runProc m f i = w where (_, w) = evalRWS m f (ProcState i False S.empty)
 
 match :: Int -> String -> Maybe Int -> Proc Bool
@@ -102,9 +76,38 @@ match a b c = do
   f <- ask
   return $ any (match' a b c) f
 
-checkLine :: BS.ByteString -> Proc ()
-checkLine s | BS.null s = return ()
-            | otherwise = if BS.index s 0 == ' '
+data LineType = Complete | Beginning | Ending
+
+convertNum :: BL.ByteString -> Maybe Int
+convertNum s | all isDigit chars = Just $ foldl1' (\z x -> 10 * z + ord x - ord '0') chars
+             | otherwise = Nothing
+  where chars = BS.unpack s
+
+classify :: BL.ByteString -> (LineType, BL.ByteString)
+classify s = let (u1, u2) = BLS.breakOn unfinished s
+                 (r1, r2) = BLS.breakAfter resumed s
+             in case (BL.null u2, BL.null r2) of
+               (False, _) -> (Beginning, u1)
+               (_, False) -> (Ending, r2)
+               _          -> (Complete, s)
+  where
+    unfinished = BS.pack "<unfinished"
+    resumed = BS.pack "resumed>"
+
+parseLine :: BL.ByteString -> Either BL.ByteString (Int, LineType, BL.ByteString)
+parseLine s = case spc = BL.elemIndex ' ' s of
+  Nothing -> Left $ BL.pack "?1? " `mappend` s
+  Just 0  -> Left s
+  Just x  -> let (tids, sys) = BL.splitAt x s 
+                 sys' = BL.tail sys
+                 tid = convertNum tids
+             in case tid of
+               Nothing   -> Left $ BL.pack "?2? " `mappend` s
+               Just tid' -> Right (tid' t sc) where (t, sc) = classify sys'
+              
+checkLine :: BL.ByteString -> Proc ()
+checkLine s | BL.null s = return ()
+            | otherwise = if BL.index s 0 == ' '
               then runDumpLine s
               else runSCLine (parse s)
   where
@@ -123,7 +126,7 @@ checkLine s | BS.null s = return ()
           psSkip %= need
           when need $ tell [s]
 
-nextLine :: Proc (Maybe BS.ByteString)
+nextLine :: Proc (Maybe BL.ByteString)
 nextLine = do
   lines <- A.get psInput
   case lines of
@@ -131,8 +134,6 @@ nextLine = do
     (x:xs) -> do 
       psInput %: tail
       return $ Just x
-      
-      
 
 mainProc :: Proc ()
 mainProc = do
@@ -145,8 +146,8 @@ mainProc = do
 
 process :: [Flag] -> IO ()
 process f = do
-  inLines <- BS.split '\n' <$> BS.getContents
-  mapM_ BS.putStrLn (runProc mainProc f inLines)
+  inLines <- BL.split '\n' <$> BL.getContents
+  mapM_ BL.putStrLn (runProc mainProc f inLines)
   
 main = do
   args <- getArgs
