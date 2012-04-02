@@ -1,4 +1,4 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving, TupleSections, TemplateHaskell #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving, DeriveDataTypeable, TupleSections, TemplateHaskell #-}
 
 module Main where
 
@@ -15,10 +15,9 @@ import Control.Monad
 import Control.Monad.RWS
 
 import System.Environment
-import System.Console.GetOpt
 import System.Exit
 
-import System.IO.Unsafe
+import System.Console.CmdArgs.Implicit
 
 import Text.Parsec.ByteString.Lazy
 
@@ -30,15 +29,13 @@ import qualified Data.ByteString.Char8 as BS
 
 import SCParser
 
-data Flag = Help | Tid Int | SCName String | Desc Int
+data CmdOpts = CmdOpts { help :: Bool
+                       , rules :: String
+                       } deriving (Show, Data, Typeable)
 
-options :: [OptDescr Flag]
-options = 
-  [ Option ['h'] ["help"]    (NoArg Help) "show help message"
-  , Option ['t'] ["tid"]     (ReqArg (Tid . read) "TID") "filter by thread id"
-  , Option ['s'] ["syscall"] (ReqArg SCName "SYSCALL") "filter by syscall name"
-  , Option ['d'] ["descr"]   (ReqArg (Desc . read) "FD") "filter by file descriptor"
-  ]
+tbOpts = CmdOpts { help = def &= help "show help message" &= opt True
+                 , rules = def &= help "rules used to process the trace" &= argPos 0 
+                 }
 
 showHelp :: [String] -> IO a
 showHelp errs = do 
@@ -163,7 +160,7 @@ process f = do
   mapM_ BL.putStrLn (runProc mainProc f inLines)
   
 main = do
-  args <- getArgs
-  case getOpt Permute options args of
-    (f, _, []) -> process f
-    (_, _, er) -> showHelp er
+  args <- cmdArgs tbOpts
+  case help args of
+    True -> showHelp
+    False -> run $ rules

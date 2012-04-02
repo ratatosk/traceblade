@@ -17,6 +17,7 @@ Executable traceblade
     parsec,
     mtl,
     containers,
+    cmdargs,
     stringsearch,
     data-accessor,
     data-accessor-mtl,

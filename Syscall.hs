@@ -1,11 +1,13 @@
 {-# LANGUAGE TemplateHaskell, TupleSections #-}
 
-module SCParser ( Syscall(..)
-                , scName
-                , scArgs
-                , Argument(..)
-                , parseSyscall
-                ) where
+module Syscall ( Syscall(..)
+               , scName
+               , scArgs
+               , scRet
+               , Argument(..)
+               , parseSyscall
+               ) where
+
 import Control.Monad
 import Control.Applicative ((<*), (<$>))
 
@@ -18,6 +20,7 @@ import Text.Parsec.Prim
 import Text.Parsec.Char
 import Text.Parsec.Combinator
 import Text.Parsec.ByteString.Lazy
+import ParserUtils
 
 import Data.Accessor.Template
 
@@ -30,35 +33,10 @@ data Argument = NumLiteral Int
 
 data Syscall = Syscall { scName_ :: String
                        , scArgs_ :: [Argument]
+                       , scRet_ :: Int
                        } deriving (Show)
 
 $(deriveAccessors ''Syscall)
-
-number :: Parser Int
-number = (liftM (foldl' (\z x -> 10 * z + ord x - ord '0') 0) $ many1 digit) <?> "number"
-
-identifier :: Parser String
-identifier = (letter <|> char '_') >>= \c -> (c:) <$> many (alphaNum <|> char '_')
-
-unesc :: Char -> Char
-unesc 'n' = '\n'
-unesc 't' = '\t'
-unesc 'r' = '\r'
-unesc 'v' = '\v'
-unesc c = c
-
-escapedChar :: Parser Char
-escapedChar = (liftM unesc $ char '\\' >> anyChar) <?> "escaped char"
-
-quoted :: Parser String
-quoted = flip label "quoted literal" $ do
-  _ <- char '\"'
-  res <- many $ escapedChar <|> noneOf ['\n', '"']
-  _ <- char '\"'
-  return res
-  
-nonQuoted :: Parser String
-nonQuoted = (many1 $ (escapedChar <|> noneOf ", \t\n{}()")) <?> "nonquoted literal"
 
 strLit :: Parser String
 strLit = quoted <|> nonQuoted <?> "literal"
@@ -97,7 +75,7 @@ syscall = do
   retc <- number
   spaces
   eof
-  return $ Syscall scName args
+  return $ Syscall scName args retc
   
 parseSyscall :: BL.ByteString -> Either String Syscall
 parseSyscall s = case parse syscall "" s of
