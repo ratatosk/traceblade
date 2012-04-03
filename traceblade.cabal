@@ -22,6 +22,5 @@ Executable traceblade
     data-accessor,
     data-accessor-mtl,
     data-accessor-template
-  Other-modules: SCParser.hs
-  
+  ghc-options: -rtsopts -auto-all -caf-all
   

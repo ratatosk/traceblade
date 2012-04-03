@@ -14,12 +14,16 @@ import Control.Monad.Reader
 import Syscall
 import Rules
 
--- May be extended to ErrorT RWS if logging and environment (for lambda abstraction) will be added
-newtype Matcher a = Matcher { unMatcher :: ErrorT String (Reader Syscall) a }
-                  deriving (Functor, Monad, MonadReader Syscall, MonadError String)
+data MatcherEnv = MatcherEnv { meTid :: Int
+                             , meSyscall :: Syscall
+                             }
 
-runMatcher :: Matcher a -> Syscall -> Either String a
-runMatcher m s = runReader (runErrorT (unMatcher m)) s
+-- May be extended to ErrorT RWS if logging and environment (for lambda abstraction) will be added
+newtype Matcher a = Matcher { unMatcher :: ErrorT String (Reader MatcherEnv) a }
+                  deriving (Functor, Monad, MonadReader MatcherEnv, MonadError String)
+
+runMatcher :: Matcher a -> Int -> Syscall -> Either String a
+runMatcher m t s = runReader (runErrorT (unMatcher m)) $ MatcherEnv t s
 
 type Builtin = [Expr] -> Matcher Expr
 type Unary = Expr -> Matcher Expr
@@ -31,6 +35,7 @@ builtins = M.fromList [ ("eq", eq)
                       , unary "tobool" toBool
                       , nullary "retcode" retcode
                       , nullary "syscall" syscall
+                      , nullary "tid" tid
                       ]
 
 eq :: Builtin
@@ -72,15 +77,17 @@ toString (IdAtom i) = return $ StrAtom (show i)
 toString (List l) = return $ StrAtom (show l)
 
 retcode :: Nullary
-retcode = NumAtom . getVal scRet <$> ask
+retcode = NumAtom . getVal scRet <$> asks meSyscall
 
 syscall :: Nullary
-syscall = StrAtom . getVal scName <$> ask
+syscall = StrAtom . getVal scName <$> asks meSyscall
 
+tid :: Nullary
+tid = NumAtom <$> asks meTid
 
 conclude :: Expr -> Matcher Bool
 conclude (BoolAtom True) = return True
-conclude (BoolAtom False) = return True
+conclude (BoolAtom False) = return False
 conclude x = fail $ "Type mismatch, BoolAtom was expected instead of: " ++ show x
 
 eval :: Expr -> Matcher Expr
@@ -93,5 +100,5 @@ apply (IdAtom func) args = case M.lookup func builtins of
   Just func -> func args
 apply a _ = fail $ "Cannot apply non-function: " ++ show a
 
-match :: Syscall -> Expr -> Either String Bool
-match s e = runMatcher (eval e >>= conclude) s
+match :: Int -> Syscall -> Expr -> Either String Bool
+match t s e = runMatcher (eval e >>= conclude) t s
