@@ -46,9 +46,9 @@ data ProcState = ProcState { psInput_      :: [BL.ByteString]
                  
 $(deriveAccessors ''ProcState)
 
-type Proc a = RWS Expr [BL.ByteString] ProcState a
+type Proc a = RWS Value [BL.ByteString] ProcState a
                              
-runProc :: Proc () -> Expr -> [BL.ByteString] -> [BL.ByteString]
+runProc :: Proc () -> Value -> [BL.ByteString] -> [BL.ByteString]
 runProc m f i = w where (_, w) = evalRWS m f (ProcState i False M.empty)
 
 data LineType = Complete | Beginning | Ending deriving (Show)
@@ -129,7 +129,7 @@ mainProc = do
       mainProc
     Nothing -> return ()
 
-process :: Expr -> IO ()
+process :: Value -> IO ()
 process x = do
   inLines <- BL.split '\n' <$> BL.getContents
   mapM_ (\x -> BL.putStrLn x >> hFlush stdout) (runProc mainProc x inLines)
