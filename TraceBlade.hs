@@ -30,8 +30,9 @@ import qualified Data.ByteString.Lazy.Search as BLS
 import qualified Data.ByteString.Char8 as BS
 
 import Syscall
-import Rules
-import Logic
+
+import Match
+import MatchEval
 
 data CmdOpts = CmdOpts { rules :: String
                        } deriving (Show, Data, Typeable)
@@ -94,11 +95,11 @@ checkLine s | BL.null s = return ()
         Nothing -> tell [BL.pack "### Finish without start:", s]
         Just beg' -> do
           psUnfinished %: M.delete tid
-          checkSyscall s tid $ BL.append beg' str
-    Complete -> checkSyscall s tid str
+          checkSyscall tid $ BL.append beg' str
+    Complete -> checkSyscall tid str
     
-checkSyscall :: BL.ByteString -> Int -> BL.ByteString -> Proc ()    
-checkSyscall str tid sys = do 
+checkSyscall :: Int -> BL.ByteString -> Proc ()    
+checkSyscall tid sys = do 
   case parseSyscall sys of
     Left e -> tell [BL.pack $ "### Cannot parse syscall: " ++ e, sys]
     Right s -> do
@@ -107,7 +108,7 @@ checkSyscall str tid sys = do
         Left err -> tell [ BL.pack $ "### Error during evaluation of match expression: " ++ err
                          , BL.pack $ "### Syscall was: " ++ show s]
         Right True -> do 
-          tell [str]
+          tell [(BL.pack $ show tid) `BL.append` BL.cons ' ' sys]
           psSkip %= False
         Right False -> psSkip %= True
 
@@ -136,7 +137,7 @@ process x = do
   
 main = do
   opts <- cmdArgs tbOpts
-  case parseRules (rules opts) of
+  case parseMatch (rules opts) of
     Left err -> do
       putStrLn $ "Cannot parse matching rules: " ++ err
       exitWith $ ExitFailure 1

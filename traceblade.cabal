@@ -22,5 +22,5 @@ Executable traceblade
     data-accessor,
     data-accessor-mtl,
     data-accessor-template
-  ghc-options: -rtsopts -auto-all -caf-all
+  ghc-options: -O2
   
