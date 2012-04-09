@@ -20,12 +20,11 @@ conclude x = throwError $ "Type mismatch, BoolAtom was expected instead of: " ++
 
 eval :: Value -> Matcher Value
 eval (L (x:xs)) = apply x xs
-eval (A n) = join $ constant n
 eval x = return x
 
 apply :: Value -> [Value] -> Matcher Value
-apply (A fn) args = function fn $ map eval args
+apply (A fn) args = function fn >>= ($ map eval args)
 apply a _ = throwError $ "Cannot apply non-function: " ++ show a
 
-match :: Int -> Syscall -> Value -> Either String Bool
-match t s e = runMatcher (eval e >>= conclude) t s
+match :: Int -> Syscall -> Value -> Bindings -> (Either String Bool, Bindings)
+match t s e b = runMatcher (eval e >>= conclude) t s b

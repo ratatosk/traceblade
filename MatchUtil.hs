@@ -27,9 +27,12 @@ pure2 f x y = return $ f x y
 wrap1 :: (Pack a, Pack b) => (a -> Matcher b) -> Value -> Matcher Value
 wrap1 f x = pack <$> (unpack x >>= f)
     
-wrap2 :: (Pack a, Pack b, Pack c) => (a -> b -> Matcher c) -> [Value] -> Matcher Value
+wrap2 :: (Pack a, Pack b, Pack c) => (a -> b -> Matcher c) -> Value -> Value -> Matcher Value
 wrap2 f x y = do 
   x' <- unpack x
   y' <- unpack y
   pack <$> f x' y'
+  
+wrapl :: (Pack a, Pack b) => ([a] -> Matcher b) -> [Value] -> Matcher Value
+wrapl f x = pack <$> (sequence (map unpack x) >>= f)
 

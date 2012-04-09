@@ -43,6 +43,7 @@ tbOpts = CmdOpts { rules = def &= argPos 0 &= typ "<rules>"
 data ProcState = ProcState { psInput_      :: [BL.ByteString]
                            , psSkip_       :: Bool
                            , psUnfinished_ :: M.Map Int BL.ByteString
+                           , psBindings_    :: Bindings
                            }
                  
 $(deriveAccessors ''ProcState)
@@ -50,7 +51,7 @@ $(deriveAccessors ''ProcState)
 type Proc a = RWS Value [BL.ByteString] ProcState a
                              
 runProc :: Proc () -> Value -> [BL.ByteString] -> [BL.ByteString]
-runProc m f i = w where (_, w) = evalRWS m f (ProcState i False M.empty)
+runProc m f i = w where (_, w) = evalRWS m f (ProcState i False M.empty M.empty)
 
 data LineType = Complete | Beginning | Ending deriving (Show)
 
@@ -98,13 +99,21 @@ checkLine s | BL.null s = return ()
           checkSyscall tid $ BL.append beg' str
     Complete -> checkSyscall tid str
     
+doMatch :: Int -> Syscall -> Proc (Either String Bool)
+doMatch tid sys = do
+  x <- ask
+  b <- A.get psBindings
+  let (r, b') = match tid sys x b
+  psBindings %= b'
+  return r
+    
 checkSyscall :: Int -> BL.ByteString -> Proc ()    
 checkSyscall tid sys = do 
   case parseSyscall sys of
     Left e -> tell [BL.pack $ "### Cannot parse syscall: " ++ e, sys]
     Right s -> do
-      x <- ask
-      case match tid s x of
+      m <- doMatch tid s
+      case m of
         Left err -> tell [ BL.pack $ "### Error during evaluation of match expression: " ++ err
                          , BL.pack $ "### Syscall was: " ++ show s]
         Right True -> do 
