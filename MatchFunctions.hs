@@ -11,25 +11,32 @@ import Data.Accessor
 import qualified Data.Map as M
 
 import Match
+import MatchUtil
 import Syscall
 
-type Function = [Value] -> Matcher Value
+type Function = [Matcher Value] -> Matcher Value
 type Constant = Matcher Value
 
+lazyFuncs :: [(String, Function)]
+lazyFuncs = [ ("if", iff)
+            , ("and", bop and)
+            , ("or", bop or)
+            ]
+
 functions :: M.Map String Function
-functions = M.fromList [ ("eq", eq)
-                       , ("and", bop and)
-                       , ("or", bop or)
-                       , ("stringp", isString)
-                       , ("boolp", isBool)
-                       , ("nump", isNum)
-                       , ("tostring", args1 toString)
-                       , ("tobool", args1 toBool)
-                       , ("error", args1 err) 
-                       , ("suffix", wrap2p strSuffix)
-                       , ("infix", wrap2p strInfix)
-                       , ("prefix", wrap2p strPrefix)
-                       ]
+functions = M.fromList $ mapSnd strict 
+            [ ("eq", eq)
+            , ("stringp", args1 isString)
+            , ("boolp", args1 isBool)
+            , ("nump", args1 isNum)
+            , ("tostring", args1 toString)
+            , ("tobool", args1 toBool)
+            , ("error", args1 err) 
+            , ("suffix", wrap2 . pure2 $ strSuffix)
+            , ("infix", wrap2 . pure2 $ strInfix)
+            , ("prefix", wrap2 . pure2 $ strPrefix)
+            ]
+
            
 constants :: M.Map String Constant
 constants = M.fromList [ ("retcode", retcode)
@@ -37,6 +44,10 @@ constants = M.fromList [ ("retcode", retcode)
                        , ("tid", tid)
                        ]
             
+mapSnd :: (b -> c) -> [(a, b)] -> [(a, c)]
+mapSnd f ((a, b):xs) = (a, f b) : mapSnd f xs
+mapSnd _ [] = []
+             
 isString :: Value -> Matcher Value
 isString (S _) = return $ B True
 isString _ = return $ B False
@@ -55,39 +66,6 @@ function fn = maybe (throwError $ "Unbound function: " ++ fn) return $ M.lookup 
 constant :: String -> Matcher Constant
 constant cn = maybe (throwError $ "Unbound constant: " ++ cn) return $ M.lookup cn constants
 
-args1 :: (Value -> Matcher Value) -> Function
-args1 f [a] = f a 
-args1 f _   = throwError "1 argument required"
-  
-args2 :: (Value -> Value -> Matcher Value) -> Function
-args2 f [a, b] = f a b
-args2 f _      = throwError "2 arguments required"
-
-pure1 :: (a -> b) -> a -> Matcher b
-pure1 f = return . f
-
-pure2 :: (a -> b -> c) -> a -> b -> Matcher c
-pure2 f x y = return $ f x y
-
-wrap1 :: (Pack a, Pack b) => (a -> Matcher b) -> Function
-wrap1 = args1 . wrap1' 
-  where 
-    wrap1' f x = pack <$> (unpack x >>= f)
-    
-wrap1p :: (Pack a, Pack b) => (a -> b) -> Function
-wrap1p = wrap1 . pure1
-
-wrap2 :: (Pack a, Pack b, Pack c) => (a -> b -> Matcher c) -> Function
-wrap2 = args2 . wrap2'
-  where
-    wrap2' f x y = do 
-      x' <- unpack x
-      y' <- unpack y
-      pack <$> f x' y'
-
-wrap2p :: (Pack a, Pack b, Pack c) => (a -> b -> c) -> Function
-wrap2p = wrap2 . pure2
-
 strInfix :: String -> String -> Bool
 strInfix = isInfixOf
 
@@ -100,12 +78,12 @@ strSuffix = isSuffixOf
 err :: Value -> Matcher Value
 err msg = unS msg >>= throwError
 
-bop :: ([Bool] -> Bool) -> Function
+bop :: ([Bool] -> Bool) -> [Value] -> Matcher Value
 bop f args = do
   bools <- mapM unpack args
   return $ B $ f bools
 
-eq :: Function
+eq :: [Value] -> Matcher Value
 eq x | length x < 2 = throwError "Builtin function 'eq' requires at least 2 arguments"
      | otherwise = if and (zipWith (==) x (tail x))
        then return $ B True
@@ -135,12 +113,12 @@ retcode = N . getVal scRet <$> asks meSyscall
 syscall :: Constant
 syscall = S . getVal scName <$> asks meSyscall
 
-packList :: Arguments
-
+{-
 args :: Constant
 args = packList . getVal scArgs <$> asks meSyscall
   where
     packList = L $ map pack
+-}
 
 tid :: Constant
 tid = N <$> asks meTid

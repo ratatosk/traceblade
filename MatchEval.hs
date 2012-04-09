@@ -24,7 +24,7 @@ eval (A n) = join $ constant n
 eval x = return x
 
 apply :: Value -> [Value] -> Matcher Value
-apply (A fn) args = function fn >>= (=<< mapM eval args)
+apply (A fn) args = function fn $ map eval args
 apply a _ = throwError $ "Cannot apply non-function: " ++ show a
 
 match :: Int -> Syscall -> Value -> Either String Bool
