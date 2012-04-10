@@ -63,12 +63,12 @@ bindMap bs = M.fromList <$> mapM getBind bs
 blet :: [Value] -> Matcher Value
 blet [L bs, b] = do
   bm <- bindMap bs
-  local (modify eLocals $ \m -> M.union bm m) $ eval b
+  local (\m -> M.union bm m) $ eval b
 blet _ = throwError "'let' requires list of binding pairs and body expression"
   
 var :: String -> Matcher Value
 var n = do
-  v <- M.lookup n <$> asks (getVal eLocals)
+  v <- M.lookup n <$> ask
   maybe (throwError $ "Unbound variable: " ++ n) return v
 
 eval :: Value -> Matcher Value
@@ -77,6 +77,7 @@ eval (A n) = var n
 eval x = return x
 
 apply :: Value -> [Value] -> Matcher Value
+apply (A "rem") _ = return $ B False
 apply (A "and") args = land $ map eval args
 apply (A "or") args = lor $ map eval args
 apply (A "if") args = lif $ map eval args

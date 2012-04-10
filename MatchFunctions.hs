@@ -21,47 +21,34 @@ type Function = [Value] -> Matcher Value
 type Constant = Matcher Value
 
 -- functions that get their args as pure values with all monadic effects already applied
-functions :: [(String, Function)]
-functions =  [ ("eq", eq)
-              , ("progn", progn)
-              , ("stringp", args1 isString)
-              , ("boolp", args1 isBool)
-              , ("nump", args1 isNum)
-              , ("tostring", args1 toString)
-              , ("tobool", args1 toBool)
-              , ("error", args1 err) 
-              , ("first", args1 first)
-              , ("second", args1 second)
-              , ("tail", args1 . wrap1 $ lTail)
-              , ("len", args1 . wrap1 . pure1 $ lLen)
-              , ("suffix", args2 . wrap2 . pure2 $ strSuffix)
-              , ("infix", args2 . wrap2 . pure2 $ strInfix)
-              , ("prefix", args2 . wrap2 . pure2 $ strPrefix)
-              , ("get", args1 bGet)
-              , ("set", args2 bSet)
-              , ("unset", args1 bUnset)
-              , ("isset", args1 bIsSet)
-              , ("add", wrapl add)
-              , ("sub", wrapl sub)
-              ]
+functions :: M.Map String Function
+functions =  M.fromList [ ("eq", eq)
+                        , ("progn", progn)
+                        , ("stringp", args1 isString)
+                        , ("boolp", args1 isBool)
+                        , ("nump", args1 isNum)
+                        , ("tostring", args1 toString)
+                        , ("tobool", args1 toBool)
+                        , ("error", args1 err) 
+                        , ("first", args1 first)
+                        , ("second", args1 second)
+                        , ("tail", args1 . wrap1 $ lTail)
+                        , ("len", args1 . wrap1 . pure1 $ lLen)
+                        , ("elem", lElem)
+                        , ("suffix", args2 . wrap2 . pure2 $ strSuffix)
+                        , ("infix", args2 . wrap2 . pure2 $ strInfix)
+                        , ("prefix", args2 . wrap2 . pure2 $ strPrefix)
+                        , ("get", args1 bGet)
+                        , ("set", args2 bSet)
+                        , ("unset", args1 bUnset)
+                        , ("isset", args1 bIsSet)
+                        , ("add", wrapl add)
+                        , ("sub", wrapl sub)
+                        ]
 
-constants :: [(String, Function)]
-constants = map (mapSnd constant)
-            [ ("tid", tid)
-            , ("syscall", syscall)
-            , ("retcode", retcode)
-            , ("args", args)
-            ]
 
-funcs :: M.Map String Function
-funcs = M.fromList $ functions ++ constants
-            
 function :: String -> Matcher Function
-function fn = maybe (throwError $ "Unbound function: " ++ fn) return $ M.lookup fn funcs
-
-constant :: Matcher Value -> Function
-constant m [] = m
-constant _ _ = throwError "Cannot apply constant to arguments"
+function fn = maybe (throwError $ "Unbound function: " ++ fn) return $ M.lookup fn functions
 
 --------------------------------------------------------------------------------
 -- Type predicates
@@ -104,6 +91,10 @@ lTail v = if null v
          
 lLen :: [Value] -> Int
 lLen = length
+
+lElem :: [Value] -> Matcher Value
+lElem [e, l] = B <$> elem e <$> unL l
+lElem _ = throwError "'elem' requires two arguments"
 
 --------------------------------------------------------------------------------
 -- String functions
@@ -159,7 +150,7 @@ toBool x = case x of
     t = return $ B True
 
 --------------------------------------------------------------------------------
--- Binding functions
+-- Global variable binding functions
 --------------------------------------------------------------------------------
 
 bGet :: Value -> Matcher Value
@@ -195,22 +186,6 @@ bIsSet k = do
   k' <- unA k
   B . isJust . M.lookup k' <$> get
     
---------------------------------------------------------------------------------
--- Syscall access functions
---------------------------------------------------------------------------------
-  
-retcode :: Constant
-retcode = asks $ getVal eRetcode
-
-syscall :: Constant
-syscall = asks $ getVal eSyscall
-
-args :: Constant
-args = asks $ getVal eArgs
-
-tid :: Constant
-tid = asks $ getVal eTid
-
 --------------------------------------------------------------------------------
 -- Arithmitic functions
 --------------------------------------------------------------------------------

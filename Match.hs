@@ -1,12 +1,6 @@
 {-# LANGUAGE TemplateHaskell, GeneralizedNewtypeDeriving, FlexibleInstances, MultiParamTypeClasses #-}
 
 module Match ( Bindings
-             , Env(..)
-             , eTid
-             , eSyscall
-             , eRetcode
-             , eArgs
-             , eLocals
              , Value(..)
              , Matcher
              , runMatcher
@@ -21,7 +15,7 @@ module Match ( Bindings
              , parseMatch
              ) where
 
-import Control.Applicative hiding ((<|>))
+import Control.Applicative hiding ((<|>), many)
 
 import Control.Monad
 import Control.Monad.Reader
@@ -46,20 +40,11 @@ data Value = B Bool | A String | N Int | S String | L [Value]
 
 type Bindings = M.Map String Value
 
-data Env = Env { eTid_ :: Value
-               , eSyscall_ :: Value
-               , eRetcode_ :: Value
-               , eArgs_ :: Value
-               , eLocals_ :: Bindings
-               }
-           
-$(deriveAccessors ''Env)
-
-newtype Matcher a = Matcher { unMatcher :: ErrorT String (StateT Bindings (Reader Env)) a }
+newtype Matcher a = Matcher { unMatcher :: ErrorT String (StateT Bindings (Reader Bindings)) a }
                   deriving ( Functor
                            , Applicative
                            , Monad
-                           , MonadReader Env
+                           , MonadReader Bindings
                            , MonadError String
                            , MonadState Bindings)
 
@@ -128,13 +113,12 @@ encode (Mask strs) = L (typeM : map A strs)
 encode (Labelled l a) = L [typeL, A l, encode a] 
 encode (Object a) = L (typeO : map encode a)
 
-mkEnv :: Int -> Syscall -> Env
-mkEnv t s = Env { eTid_ = N t
-                , eSyscall_ = S (getVal scName s)
-                , eRetcode_ = N (getVal scRet s)
-                , eArgs_ = L (map encode $ getVal scArgs s)
-                , eLocals_ = M.empty
-                }
+mkEnv :: Int -> Syscall -> Bindings
+mkEnv t s = M.fromList [ ("tid",  N t)
+                       , ("syscall", S (getVal scName s))
+                       , ("retcode", N (getVal scRet s))
+                       , ("args", L (map encode $ getVal scArgs s))
+                       ]
 
 boolLit :: Parser Bool
 boolLit = char '#' >> ((char 'f' >> return False) <|> (char 't' >> return True))
@@ -153,10 +137,14 @@ expr = quoted               <|>
        (S <$> doubleQuoted) <|>
        (L <$> list)
        
-list :: Parser [Value]
-list = (char '(' >> spaces) *> manyTill (expr <* spaces) (char ')')
+list = char '(' *> exprs <* char ')'
+
+exprs :: Parser [Value]
+exprs = spaces *> many (expr <* spaces)
        
 parseMatch :: String -> Either String Value
-parseMatch s = case parse expr "" s of
-  Left e -> Left $ show e
-  Right s -> Right s 
+parseMatch s = case parse exprs "" s of
+  Left e    -> Left $ show e
+  Right []  -> Left $ "Empty expression"
+  Right [v] -> Right v
+  Right s   -> Right $ L (A "progn" : s)
