@@ -28,8 +28,8 @@ unesc c = c
 escapedChar :: Stream s m Char => ParsecT s u m Char
 escapedChar = (liftM unesc $ char '\\' >> anyChar) <?> "escaped char"
 
-quoted :: Stream s m Char => ParsecT s u m String
-quoted = flip label "quoted literal" $ do
+doubleQuoted :: Stream s m Char => ParsecT s u m String
+doubleQuoted = flip label "doublequoted literal" $ do
   _ <- char '\"'
   res <- many $ escapedChar <|> noneOf ['\n', '"']
   _ <- char '\"'

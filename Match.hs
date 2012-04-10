@@ -6,6 +6,7 @@ module Match ( Bindings
              , eSyscall
              , eRetcode
              , eArgs
+             , eLocals
              , Value(..)
              , Matcher
              , runMatcher
@@ -13,6 +14,7 @@ module Match ( Bindings
              , unB
              , unS
              , unN 
+             , unL
              , Pack
              , pack
              , unpack
@@ -48,6 +50,7 @@ data Env = Env { eTid_ :: Value
                , eSyscall_ :: Value
                , eRetcode_ :: Value
                , eArgs_ :: Value
+               , eLocals_ :: Bindings
                }
            
 $(deriveAccessors ''Env)
@@ -99,6 +102,10 @@ instance Pack Bool where
   pack = B
   unpack = unB
   
+instance Pack [Value] where
+  pack = L
+  unpack = unL
+  
 typeN :: Value
 typeN =  A "number"
 
@@ -126,16 +133,24 @@ mkEnv t s = Env { eTid_ = N t
                 , eSyscall_ = S (getVal scName s)
                 , eRetcode_ = N (getVal scRet s)
                 , eArgs_ = L (map encode $ getVal scArgs s)
+                , eLocals_ = M.empty
                 }
 
 boolLit :: Parser Bool
 boolLit = char '#' >> ((char 'f' >> return False) <|> (char 't' >> return True))
 
+quoted :: Parser Value
+quoted = do
+  char '\''
+  e <- expr
+  return $ L [A "quote", e]
+
 expr :: Parser Value
-expr = (B <$> boolLit)    <|>
-       (A <$> identifier) <|> 
-       (N <$> number)     <|>
-       (S <$> quoted)     <|>
+expr = quoted               <|>
+       (B <$> boolLit)      <|>
+       (A <$> identifier)   <|> 
+       (N <$> number)       <|>
+       (S <$> doubleQuoted) <|>
        (L <$> list)
        
 list :: Parser [Value]

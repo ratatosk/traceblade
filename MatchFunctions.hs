@@ -17,22 +17,12 @@ import Match
 import MatchUtil
 import Syscall
 
-type Function = [Matcher Value] -> Matcher Value
+type Function = [Value] -> Matcher Value
 type Constant = Matcher Value
 
--- functions that get their args as monadic values and can discard 
--- monadic effects by ignoring the argument
-lazyFuncs :: [(String, Function)]
-lazyFuncs = [ ("if", lif)
-            , ("and", land)
-            , ("or", lor)
-            , ("cond", cond)
-            ]
-            
 -- functions that get their args as pure values with all monadic effects already applied
-strictFuncs :: [(String, Function)]
-strictFuncs = map (mapSnd strict)
-              [ ("eq", eq)
+functions :: [(String, Function)]
+functions =  [ ("eq", eq)
               , ("progn", progn)
               , ("stringp", args1 isString)
               , ("boolp", args1 isBool)
@@ -40,6 +30,10 @@ strictFuncs = map (mapSnd strict)
               , ("tostring", args1 toString)
               , ("tobool", args1 toBool)
               , ("error", args1 err) 
+              , ("first", args1 first)
+              , ("second", args1 second)
+              , ("tail", args1 . wrap1 $ lTail)
+              , ("len", args1 . wrap1 . pure1 $ lLen)
               , ("suffix", args2 . wrap2 . pure2 $ strSuffix)
               , ("infix", args2 . wrap2 . pure2 $ strInfix)
               , ("prefix", args2 . wrap2 . pure2 $ strPrefix)
@@ -59,11 +53,11 @@ constants = map (mapSnd constant)
             , ("args", args)
             ]
 
-functions :: M.Map String Function
-functions = M.fromList $ lazyFuncs ++ strictFuncs ++ constants
+funcs :: M.Map String Function
+funcs = M.fromList $ functions ++ constants
             
 function :: String -> Matcher Function
-function fn = maybe (throwError $ "Unbound function: " ++ fn) return $ M.lookup fn functions
+function fn = maybe (throwError $ "Unbound function: " ++ fn) return $ M.lookup fn funcs
 
 constant :: Matcher Value -> Function
 constant m [] = m
@@ -84,6 +78,32 @@ isBool _ = return $ B False
 isNum :: Value -> Matcher Value
 isNum (N _) = return $ B True
 isNum _ = return $ B False
+
+--------------------------------------------------------------------------------
+-- List functions
+--------------------------------------------------------------------------------
+
+first :: Value -> Matcher Value
+first v = do
+  v' <- unL v
+  if null v'
+    then throwError $ "'first' applied to empty list"
+    else return $ head v'
+         
+second :: Value -> Matcher Value         
+second v = do
+  v' <- unL v
+  if length v' < 2
+    then throwError $ "'second' applied to list that is too short'"
+    else return $ head $ tail v'
+
+lTail :: [Value] -> Matcher [Value]
+lTail v = if null v
+         then throwError $ "Empty list has no tail"
+         else return $ tail v
+         
+lLen :: [Value] -> Int
+lLen = length
 
 --------------------------------------------------------------------------------
 -- String functions
@@ -112,20 +132,7 @@ toString (L l) = return $ S (show l)
 
 err :: Value -> Matcher Value
 err msg = unS msg >>= throwError
-  
-lif :: [Matcher Value] -> Matcher Value
-lif [c, t, f] = do
-  v <- c >>= unpack
-  if v then t else f
-lif _ = throwError "'if' requires three arguments"
 
-cond :: [Matcher Value] -> Matcher Value
-cond [] = throwError "'cond' was non-exhaustive"
-cond [x] = throwError "'cond' need even number of arguments"
-cond (c:d:cs) = do
-  v <- c >>= unpack
-  if v then d else cond cs
-  
 progn :: [Value] -> Matcher Value
 progn [] = throwError "'progn' with empty body"
 progn x = return $ last x
@@ -133,18 +140,6 @@ progn x = return $ last x
 --------------------------------------------------------------------------------
 -- Logic functions
 --------------------------------------------------------------------------------
-
-land :: [Matcher Value] -> Matcher Value
-land [] = return $ B True
-land (m:ms) = do
-  v <- m >>= unB
-  if v then land ms else return (B False)
-  
-lor :: [Matcher Value] -> Matcher Value
-lor [] = return $ B False
-lor (m:ms) = do
-  v <- m >>= unB
-  if v then return (B True) else lor ms
 
 eq :: [Value] -> Matcher Value
 eq x | length x < 2 = throwError "Builtin function 'eq' requires at least 2 arguments"
